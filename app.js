@@ -1083,12 +1083,20 @@ function bind() {
   $('btn-cfg-save').onclick = saveConfig;
   $('btn-cfg-clear').onclick = clearConfig;
   $('btn-sync').onclick = () => syncNow();
+  $('btn-reload').onclick = () => location.reload();
   $('btn-import-questions').onclick = () => $('file-questions').click();
   $('file-questions').onchange = e => { if (e.target.files[0]) importQuestionsFile(e.target.files[0]); e.target.value = ''; };
   $('btn-export-questions').onclick = () => download('questions.json', JSON.stringify(state.questions, null, 2));
   $('btn-import-progress').onclick = () => $('file-progress').click();
   $('file-progress').onchange = e => { if (e.target.files[0]) importProgressFile(e.target.files[0]); e.target.value = ''; };
 }
+
+/* iOS 主屏幕模式下，应用从后台恢复时不会重新加载页面——
+ * 监听回到前台的事件，自动做一次静默同步，保证数据不陈旧。
+ * 答题进行中不打扰（只拉数据，不动当前题）。 */
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && state.config) syncNow(true);
+});
 
 function init() {
   const savedTheme = lsGet(LS.theme, null);
