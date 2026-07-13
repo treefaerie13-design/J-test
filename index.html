@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1a1a2e">
+<title>日本語復習</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <span class="logo">復習</span>
+    <nav>
+      <button class="nav-btn active" data-view="quiz">答题</button>
+      <button class="nav-btn" data-view="stats">弱点报告</button>
+      <button class="nav-btn" data-view="collect">收集</button>
+      <button class="nav-btn" data-view="data">数据</button>
+    </nav>
+    <button id="theme-toggle" title="切换深色模式">◐</button>
+  </div>
+</header>
+
+<main>
+
+<!-- ============ 答题 ============ -->
+<section id="view-quiz" class="view active">
+  <div id="quiz-setup">
+    <div class="filters">
+      <label>类型
+        <select id="f-type">
+          <option value="">全部</option>
+          <option value="grammar">语法</option>
+          <option value="expression">表达</option>
+          <option value="vocab">词汇</option>
+        </select>
+      </label>
+      <label>标签
+        <select id="f-tag"><option value="">全部</option></select>
+      </label>
+      <label>语法点
+        <select id="f-gp"><option value="">全部</option></select>
+      </label>
+      <label class="check-label">
+        <input type="checkbox" id="f-wrong-only"> 只刷错题
+      </label>
+    </div>
+    <div id="pool-info" class="muted"></div>
+    <button id="btn-start" class="primary big">开始练习</button>
+  </div>
+
+  <div id="quiz-card" class="hidden">
+    <div class="quiz-meta">
+      <span id="q-type-badge" class="badge"></span>
+      <span id="session-score" class="muted"></span>
+      <button id="btn-stop" class="link-btn">结束</button>
+    </div>
+    <div id="q-prompt" class="jp"></div>
+    <div id="q-translation" class="muted"></div>
+    <div id="q-hint" class="muted"></div>
+    <div id="q-choices"></div>
+    <div id="q-cloze" class="hidden">
+      <input type="text" id="cloze-input" lang="ja" autocomplete="off" placeholder="输入答案后回车">
+    </div>
+    <div id="answer-actions" class="row">
+      <button id="btn-submit" class="primary">提交</button>
+      <button id="btn-idk" class="secondary">我不会</button>
+      <button id="btn-skip" class="link-btn">跳过此题</button>
+    </div>
+    <div id="q-result" class="hidden">
+      <div id="result-verdict"></div>
+      <div id="result-answer" class="jp-small"></div>
+      <div id="result-explanation"></div>
+      <div class="result-actions">
+        <button id="btn-next" class="primary">下一题 ⏎</button>
+        <button id="btn-flag" class="link-btn">这题有问题</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 弱点报告 ============ -->
+<section id="view-stats" class="view">
+  <div id="stats-content"></div>
+  <div class="row">
+    <button id="btn-export-report" class="secondary">导出报告 (Markdown)</button>
+  </div>
+</section>
+
+<!-- ============ 收集 ============ -->
+<section id="view-collect" class="view">
+  <p class="muted">把在 Claude 等任何地方查到的词、句子、解析粘贴到这里，保存进收件箱。之后在电脑上用 Claude Code 批量消化成题目。</p>
+  <textarea id="collect-text" lang="ja" rows="6" placeholder="粘贴词 / 句子 / 解析，格式随意"></textarea>
+  <button id="btn-collect-save" class="primary big">存入收件箱</button>
+  <div id="collect-status" class="muted"></div>
+  <h3>收件箱待处理 <span id="inbox-count" class="badge"></span></h3>
+  <div id="inbox-list"></div>
+</section>
+
+<!-- ============ 数据 ============ -->
+<section id="view-data" class="view">
+  <h3>GitHub 同步</h3>
+  <p class="muted">配置后题库、进度、收件箱都存进你的私有数据仓库，多设备通用。留空则为纯本地模式（文件导入导出）。</p>
+  <div class="form">
+    <label>GitHub 用户名 <input type="text" id="cfg-owner" autocomplete="off"></label>
+    <label>数据仓库名 <input type="text" id="cfg-repo" placeholder="jp-quiz-data" autocomplete="off"></label>
+    <label>Token <input type="password" id="cfg-token" placeholder="fine-grained PAT，只授数据仓库 Contents 读写" autocomplete="off"></label>
+    <label>本设备名 <input type="text" id="cfg-device" placeholder="如 desktop / phone" autocomplete="off"></label>
+    <div class="row">
+      <button id="btn-cfg-save" class="primary">保存并连接</button>
+      <button id="btn-cfg-clear" class="secondary">清除配置</button>
+    </div>
+  </div>
+  <div id="conn-status" class="status-line"></div>
+  <div class="row">
+    <button id="btn-sync" class="secondary">立即同步</button>
+  </div>
+
+  <h3>本地文件</h3>
+  <div class="row wrap">
+    <button id="btn-import-questions" class="secondary">载入题库文件</button>
+    <button id="btn-export-questions" class="secondary">导出题库</button>
+    <button id="btn-import-progress" class="secondary">载入进度文件</button>
+    <button id="btn-export-progress" class="secondary">导出进度</button>
+  </div>
+  <input type="file" id="file-questions" accept=".json" class="hidden">
+  <input type="file" id="file-progress" accept=".json" class="hidden">
+
+  <h3>状态</h3>
+  <div id="data-summary" class="muted"></div>
+  <div id="validation-errors"></div>
+</section>
+
+</main>
+
+<div id="toast" class="hidden"></div>
+<script src="app.js"></script>
+</body>
+</html>
