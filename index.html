@@ -15,6 +15,7 @@
       <button class="nav-btn active" data-view="quiz">答题</button>
       <button class="nav-btn" data-view="stats">弱点报告</button>
       <button class="nav-btn" data-view="collect">收集</button>
+      <button class="nav-btn" data-view="fav">收藏</button>
       <button class="nav-btn" data-view="data">数据</button>
     </nav>
     <button id="theme-toggle" title="切换深色模式">◐</button>
@@ -73,6 +74,7 @@
       <div id="result-explanation"></div>
       <div class="result-actions">
         <button id="btn-next" class="primary">下一题 ⏎</button>
+        <button id="btn-fav" class="link-btn">☆ 收藏</button>
         <button id="btn-flag" class="link-btn">这题有问题</button>
       </div>
     </div>
@@ -95,6 +97,16 @@
   <div id="collect-status" class="muted"></div>
   <h3>收件箱待处理 <span id="inbox-count" class="badge"></span></h3>
   <div id="inbox-list"></div>
+</section>
+
+<!-- ============ 收藏 ============ -->
+<section id="view-fav" class="view">
+  <p class="muted">答题后点「☆ 收藏」把重要的题收进来。在这里浏览、整理进收藏夹，或只练某个收藏夹。</p>
+  <div class="row">
+    <input type="text" id="new-folder-name" placeholder="新收藏夹名称，如「敬语」">
+    <button id="btn-new-folder" class="secondary">新建收藏夹</button>
+  </div>
+  <div id="fav-folders"></div>
 </section>
 
 <!-- ============ 数据 ============ -->

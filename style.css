@@ -150,6 +150,19 @@ textarea { font-family: var(--jp-font); resize: vertical; }
 .inbox-item .meta { display: flex; gap: 8px; color: var(--muted); font-size: 12px; margin-top: 6px; font-family: system-ui, sans-serif; }
 .inbox-item .meta button { margin-left: auto; }
 
+/* ---- 收藏 ---- */
+.fav-folder { margin-bottom: 28px; }
+.fav-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fav-head h3 { margin: 8px 0; flex: 1; min-width: 120px; }
+.fav-item {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px; margin: 8px 0;
+}
+.fav-ans { font-family: var(--jp-font); font-size: 15px; margin-top: 4px; }
+.fav-exp { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.fav-ctrl { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
+.fav-ctrl select { width: auto; font-size: 14px; padding: 6px 8px; }
+
 /* ---- 数据页 ---- */
 .status-line { margin: 8px 0; font-size: 14px; }
 .status-line.ok { color: var(--correct); }

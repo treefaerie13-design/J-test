@@ -20,6 +20,8 @@ const LS = {
   progressDirty: 'jq_progress_dirty',
   inbox: 'jq_inbox',
   inboxQueue: 'jq_inbox_queue',
+  fav: 'jq_favorites',
+  favDirty: 'jq_fav_dirty',
 };
 
 const state = {
@@ -29,7 +31,9 @@ const state = {
   progressMine: [],        // 本设备答题记录
   progressOthers: [],      // 其他设备记录（GitHub 模式下合并统计用）
   inbox: [],
-  shas: { questions: null, inbox: null, progress: null },
+  favorites: { folders: [], items: [] },
+  favPool: null,           // 收藏夹专练模式：限定可抽题 id 集合
+  shas: { questions: null, inbox: null, progress: null, fav: null },
   online: false,           // GitHub 连接是否正常
   session: { active: false, q: null, choiceOrder: [], picked: null, answered: false, total: 0, correct: 0, asked: [] },
 };
@@ -178,6 +182,8 @@ function loadFromCache() {
   state.progressMine = lsGet(LS.progressMine, []);
   state.progressOthers = lsGet(LS.progressOthers, []);
   state.inbox = lsGet(LS.inbox, []);
+  const fav = lsGet(LS.fav, null);
+  if (fav && Array.isArray(fav.items)) state.favorites = fav;
 }
 
 function allProgress() { return state.progressMine.concat(state.progressOthers); }
@@ -210,6 +216,18 @@ async function ghLoadAll() {
     try { state.inbox = JSON.parse(inf.text); } catch { state.inbox = []; }
   } else { state.inbox = []; state.shas.inbox = null; }
   lsSet(LS.inbox, state.inbox);
+
+  const ff = await GH.getFile('favorites.json');
+  if (ff) {
+    state.shas.fav = ff.sha;
+    let remote = null;
+    try { remote = JSON.parse(ff.text); } catch { }
+    if (remote && Array.isArray(remote.items)) {
+      // 本机有未推送的收藏改动时合并，否则以远端为准
+      state.favorites = lsGet(LS.favDirty, false) ? mergeFav(remote, state.favorites) : remote;
+    }
+  } else { state.shas.fav = null; }
+  lsSet(LS.fav, state.favorites);
 
   const files = await GH.listDir('progress');
   const mineName = deviceName() + '.json';
@@ -296,6 +314,41 @@ async function pushInbox() {
   state.shas.inbox = await GH.putFile('inbox.json', body, state.shas.inbox, `inbox: ${nowISO()}`);
 }
 
+function mergeFav(a, b) {  // b（本机）优先
+  const folders = new Map();
+  a.folders.concat(b.folders).forEach(f => folders.set(f.id, f));
+  const items = new Map();
+  a.items.concat(b.items).forEach(i => items.set(i.question_id, i));
+  return { folders: [...folders.values()], items: [...items.values()] };
+}
+
+async function pushFavorites() {
+  const body = () => JSON.stringify(state.favorites, null, 2);
+  try {
+    state.shas.fav = await GH.putFile('favorites.json', body(), state.shas.fav, `favorites: ${nowISO()}`);
+    lsSet(LS.favDirty, false);
+  } catch (e) {
+    if (e.status === 409 || e.status === 422) {
+      const ff = await GH.getFile('favorites.json');
+      state.shas.fav = ff ? ff.sha : null;
+      state.shas.fav = await GH.putFile('favorites.json', body(), state.shas.fav, `favorites: ${nowISO()}`);
+      lsSet(LS.favDirty, false);
+      return;
+    }
+    throw e;
+  }
+}
+
+function saveFavorites() {
+  lsSet(LS.fav, state.favorites);
+  if (state.config) {
+    lsSet(LS.favDirty, true);
+    pushFavorites().catch(() => {
+      setConnStatus('收藏暂存本机，恢复网络后点「立即同步」', false);
+    });
+  }
+}
+
 /* 手动/自动同步：拉取全部 + 冲洗离线队列 */
 async function syncNow(silent) {
   if (!state.config) { if (!silent) toast('未配置 GitHub，当前为纯本地模式'); return; }
@@ -309,7 +362,9 @@ async function syncNow(silent) {
       lsSet(LS.inboxQueue, []);
     }
     if (lsGet(LS.progressDirty, false)) await pushProgress();
+    if (lsGet(LS.favDirty, false)) await pushFavorites();
     renderInbox();
+    renderFav();
     renderDataPage();
     renderStats();
     if (!silent) toast('同步完成');
@@ -350,6 +405,7 @@ function weightFor(hist) {
 function activeQuestions() { return state.questions.filter(q => q.status !== 'flagged'); }
 
 function filteredPool() {
+  if (state.favPool) return activeQuestions().filter(q => state.favPool.has(q.id));  // 收藏夹专练：忽略其他筛选
   const type = $('f-type').value, tag = $('f-tag').value, gp = $('f-gp').value;
   const wrongOnly = $('f-wrong-only').checked;
   const hm = historyMap();
@@ -423,6 +479,7 @@ function startSession() {
 
 function stopSession() {
   state.session.active = false;
+  state.favPool = null;
   $('quiz-card').classList.add('hidden');
   $('quiz-setup').classList.remove('hidden');
   updatePoolInfo();
@@ -521,6 +578,7 @@ function revealResult(ok, verdictText) {
   const accepted = Array.isArray(q.answer) ? q.answer.join(' ／ ') : q.answer;
   $('result-answer').textContent = '答案：' + accepted;
   $('result-explanation').textContent = q.explanation || '';
+  updateFavBtn();
   $('answer-actions').classList.add('hidden');
   $('q-result').classList.remove('hidden');
   setTimeout(() => $('btn-next').focus(), 50);
@@ -744,6 +802,160 @@ async function removeInboxItem(item) {
   renderInbox();
 }
 
+/* ================= 收藏 ================= */
+
+function favItem(qid) { return state.favorites.items.find(i => i.question_id === qid); }
+
+function updateFavBtn() {
+  const q = state.session.q;
+  $('btn-fav').textContent = q && favItem(q.id) ? '★ 已收藏' : '☆ 收藏';
+}
+
+function toggleFavCurrent() {
+  const q = state.session.q;
+  if (!q) return;
+  if (favItem(q.id)) {
+    state.favorites.items = state.favorites.items.filter(i => i.question_id !== q.id);
+    toast('已取消收藏');
+  } else {
+    state.favorites.items.push({ question_id: q.id, folder_id: null, added_at: nowISO() });
+    toast('已收藏，可在「收藏」页整理进收藏夹');
+  }
+  updateFavBtn();
+  saveFavorites();
+}
+
+function newFolder() {
+  const name = $('new-folder-name').value.trim();
+  if (!name) { toast('先输入收藏夹名称'); return; }
+  if (state.favorites.folders.some(f => f.name === name)) { toast('已有同名收藏夹'); return; }
+  state.favorites.folders.push({ id: 'f-' + Date.now().toString(36), name });
+  $('new-folder-name').value = '';
+  saveFavorites();
+  renderFav();
+}
+
+function renameFolder(folder) {
+  const name = prompt('新名称：', folder.name);
+  if (!name || !name.trim()) return;
+  folder.name = name.trim();
+  saveFavorites();
+  renderFav();
+}
+
+function deleteFolder(folder) {
+  if (!confirm(`删除收藏夹「${folder.name}」？里面的题会回到未分类，不会取消收藏。`)) return;
+  state.favorites.items.forEach(i => { if (i.folder_id === folder.id) i.folder_id = null; });
+  state.favorites.folders = state.favorites.folders.filter(f => f.id !== folder.id);
+  saveFavorites();
+  renderFav();
+}
+
+function practiceFolder(group) {
+  const ids = new Set(state.favorites.items
+    .filter(i => (i.folder_id || null) === (group.id || null))
+    .map(i => i.question_id));
+  const pool = activeQuestions().filter(q => ids.has(q.id));
+  if (!pool.length) { toast('这个收藏夹里没有可练的题'); return; }
+  state.favPool = ids;
+  switchView('quiz');
+  startSession();
+  toast(`只练「${group.name}」（${pool.length} 题），点「结束」退出`);
+}
+
+function renderFav() {
+  const container = $('fav-folders');
+  container.innerHTML = '';
+  const groups = [{ id: null, name: '未分类' }].concat(state.favorites.folders);
+  if (!state.favorites.items.length && !state.favorites.folders.length) {
+    container.innerHTML = '<p class="muted">还没有收藏。答完一道题后点「☆ 收藏」。</p>';
+    return;
+  }
+  const byId = new Map(state.questions.map(q => [q.id, q]));
+  groups.forEach(g => {
+    const items = state.favorites.items.filter(i => (i.folder_id || null) === (g.id || null));
+    if (g.id === null && !items.length) return;   // 未分类为空就不显示
+
+    const sec = document.createElement('div');
+    sec.className = 'fav-folder';
+    const head = document.createElement('div');
+    head.className = 'fav-head';
+    const title = document.createElement('h3');
+    title.textContent = `${g.name}（${items.length}）`;
+    head.appendChild(title);
+    const practice = document.createElement('button');
+    practice.className = 'secondary';
+    practice.textContent = '练这组';
+    practice.disabled = !items.length;
+    practice.onclick = () => practiceFolder(g);
+    head.appendChild(practice);
+    if (g.id) {
+      const ren = document.createElement('button');
+      ren.className = 'link-btn';
+      ren.textContent = '重命名';
+      ren.onclick = () => renameFolder(g);
+      head.appendChild(ren);
+      const del = document.createElement('button');
+      del.className = 'link-btn';
+      del.textContent = '删除';
+      del.onclick = () => deleteFolder(g);
+      head.appendChild(del);
+    }
+    sec.appendChild(head);
+
+    items.forEach(item => {
+      const q = byId.get(item.question_id);
+      const card = document.createElement('div');
+      card.className = 'fav-item';
+      if (q) {
+        const prompt = document.createElement('div');
+        prompt.className = 'jp-small';
+        prompt.textContent = q.prompt;
+        card.appendChild(prompt);
+        const ans = document.createElement('div');
+        ans.className = 'fav-ans';
+        ans.textContent = '答案：' + (Array.isArray(q.answer) ? q.answer.join(' ／ ') : q.answer);
+        card.appendChild(ans);
+        const exp = document.createElement('div');
+        exp.className = 'fav-exp';
+        exp.textContent = q.explanation || '';
+        card.appendChild(exp);
+      } else {
+        const gone = document.createElement('div');
+        gone.className = 'muted';
+        gone.textContent = `题目 ${item.question_id} 已不在题库中`;
+        card.appendChild(gone);
+      }
+      const ctrl = document.createElement('div');
+      ctrl.className = 'fav-ctrl';
+      if (q) {
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.textContent = q.grammar_point || TYPE_LABEL[q.type] || '';
+        ctrl.appendChild(badge);
+      }
+      const move = document.createElement('select');
+      move.innerHTML = '<option value="">未分类</option>' +
+        state.favorites.folders.map(f => `<option value="${f.id}">${escapeHtml(f.name)}</option>`).join('');
+      move.value = item.folder_id || '';
+      move.onchange = () => { item.folder_id = move.value || null; saveFavorites(); renderFav(); };
+      ctrl.appendChild(move);
+      const unfav = document.createElement('button');
+      unfav.className = 'link-btn';
+      unfav.textContent = '取消收藏';
+      unfav.onclick = () => {
+        state.favorites.items = state.favorites.items.filter(i => i.question_id !== item.question_id);
+        saveFavorites();
+        renderFav();
+      };
+      ctrl.appendChild(unfav);
+      card.appendChild(ctrl);
+      sec.appendChild(card);
+    });
+    container.appendChild(sec);
+  });
+}
+
 /* ================= 数据页 ================= */
 
 function renderDataPage() {
@@ -757,7 +969,8 @@ function renderDataPage() {
   const pending = state.inbox.filter(i => i.status === 'pending').length + lsGet(LS.inboxQueue, []).length;
   $('data-summary').textContent =
     `题库 ${state.questions.length} 题（可抽 ${state.questions.length - flagged}，已标记问题 ${flagged}）；` +
-    `答题记录 ${allProgress().length} 条（本设备 ${state.progressMine.length}）；收件箱待处理 ${pending} 条。`;
+    `答题记录 ${allProgress().length} 条（本设备 ${state.progressMine.length}）；收件箱待处理 ${pending} 条；` +
+    `收藏 ${state.favorites.items.length} 题、收藏夹 ${state.favorites.folders.length} 个。`;
   $('validation-errors').textContent = state.validationErrors.length
     ? '题库格式问题（这些题已被跳过）：\n' + state.validationErrors.join('\n') : '';
 }
@@ -845,6 +1058,7 @@ function switchView(name) {
   document.querySelector(`.nav-btn[data-view="${name}"]`).classList.add('active');
   if (name === 'stats') renderStats();
   if (name === 'collect') renderInbox();
+  if (name === 'fav') renderFav();
   if (name === 'data') renderDataPage();
   if (name === 'quiz') updatePoolInfo();
 }
@@ -861,6 +1075,8 @@ function bind() {
   $('btn-skip').onclick = skipQuestion;
   $('btn-next').onclick = () => showQuestion(pickNext());
   $('btn-flag').onclick = flagCurrent;
+  $('btn-fav').onclick = toggleFavCurrent;
+  $('btn-new-folder').onclick = newFolder;
   ['f-type', 'f-tag', 'f-gp', 'f-wrong-only'].forEach(id => $(id).onchange = updatePoolInfo);
   $('btn-export-report').onclick = () => download(`弱点报告_${today()}.md`, reportMarkdown(), 'text/markdown');
   $('btn-collect-save').onclick = saveCollect;
