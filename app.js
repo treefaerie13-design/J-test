@@ -22,6 +22,7 @@ const LS = {
   inboxQueue: 'jq_inbox_queue',
   fav: 'jq_favorites',
   favDirty: 'jq_fav_dirty',
+  readings: 'jq_readings',
 };
 
 const state = {
@@ -32,6 +33,7 @@ const state = {
   progressOthers: [],      // 其他设备记录（GitHub 模式下合并统计用）
   inbox: [],
   favorites: { folders: [], items: [] },
+  readings: {},            // 注音词典：日语词 → 带[假名]标记的字符串
   favPool: null,           // 收藏夹专练模式：限定可抽题 id 集合
   shas: { questions: null, inbox: null, progress: null, fav: null },
   online: false,           // GitHub 连接是否正常
@@ -91,6 +93,43 @@ function download(filename, text, mime = 'application/json') {
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* ---- 注音（ふりがな）渲染 ----
+ * 词典（readings.json）的键是日语词的原文，值是给汉字加了 [假名] 标记的形式。
+ * 解析文本是中文夹日语：只对「」引号内的内容注音，避免误标中文；
+ * 答案文本整体是日语，全文注音。长词优先匹配，占位符防止重复替换。 */
+
+let _readingKeys = null, _readingKeysFor = null;
+function readingKeys() {
+  if (_readingKeysFor !== state.readings) {
+    _readingKeys = Object.keys(state.readings).sort((a, b) => b.length - a.length);
+    _readingKeysFor = state.readings;
+  }
+  return _readingKeys;
+}
+
+function annotateJa(seg) {
+  const toks = [];
+  for (const surface of readingKeys()) {
+    if (!seg.includes(surface)) continue;
+    const tok = '' + toks.length + '';
+    toks.push(state.readings[surface]);
+    seg = seg.split(surface).join(tok);
+  }
+  toks.forEach((marked, i) => { seg = seg.split('' + i + '').join(marked); });
+  return seg;
+}
+
+function renderRuby(text, wholeJapanese) {
+  if (!text) return '';
+  const marked = wholeJapanese
+    ? annotateJa(String(text))
+    : String(text).replace(/「([^」]*)」/g, (m, inner) => '「' + annotateJa(inner) + '」');
+  return escapeHtml(marked).replace(
+    /([㐀-鿿々ヶ]+)\[([ぁ-ゖァ-ヺー]+)\]/g,
+    '<ruby>$1<rt>$2</rt></ruby>'
+  );
 }
 
 /* ================= GitHub API ================= */
@@ -184,6 +223,7 @@ function loadFromCache() {
   state.inbox = lsGet(LS.inbox, []);
   const fav = lsGet(LS.fav, null);
   if (fav && Array.isArray(fav.items)) state.favorites = fav;
+  state.readings = lsGet(LS.readings, {});
 }
 
 function allProgress() { return state.progressMine.concat(state.progressOthers); }
@@ -228,6 +268,11 @@ async function ghLoadAll() {
     }
   } else { state.shas.fav = null; }
   lsSet(LS.fav, state.favorites);
+
+  const rf = await GH.getFile('readings.json');
+  if (rf) {
+    try { state.readings = JSON.parse(rf.text); lsSet(LS.readings, state.readings); } catch { }
+  }
 
   const files = await GH.listDir('progress');
   const mineName = deviceName() + '.json';
@@ -576,8 +621,8 @@ function revealResult(ok, verdictText) {
   verdict.textContent = verdictText;
   verdict.className = ok ? 'ok' : 'ng';
   const accepted = Array.isArray(q.answer) ? q.answer.join(' ／ ') : q.answer;
-  $('result-answer').textContent = '答案：' + accepted;
-  $('result-explanation').textContent = q.explanation || '';
+  $('result-answer').innerHTML = '答案：' + renderRuby(accepted, true);
+  $('result-explanation').innerHTML = renderRuby(q.explanation || '', false);
   updateFavBtn();
   $('answer-actions').classList.add('hidden');
   $('q-result').classList.remove('hidden');
@@ -914,11 +959,11 @@ function renderFav() {
         card.appendChild(prompt);
         const ans = document.createElement('div');
         ans.className = 'fav-ans';
-        ans.textContent = '答案：' + (Array.isArray(q.answer) ? q.answer.join(' ／ ') : q.answer);
+        ans.innerHTML = '答案：' + renderRuby(Array.isArray(q.answer) ? q.answer.join(' ／ ') : q.answer, true);
         card.appendChild(ans);
         const exp = document.createElement('div');
         exp.className = 'fav-exp';
-        exp.textContent = q.explanation || '';
+        exp.innerHTML = renderRuby(q.explanation || '', false);
         card.appendChild(exp);
       } else {
         const gone = document.createElement('div');

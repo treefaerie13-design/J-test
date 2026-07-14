@@ -169,6 +169,15 @@ textarea { font-family: var(--jp-font); resize: vertical; }
 .status-line.ng { color: var(--wrong); }
 #validation-errors { color: var(--wrong); font-size: 14px; white-space: pre-wrap; }
 
+/* ---- 注音 ---- */
+ruby rt {
+  font-size: 0.55em;
+  color: var(--muted);
+  font-family: var(--jp-font);
+  user-select: none;
+}
+#result-answer, #result-explanation, .fav-ans, .fav-exp { line-height: 2; }
+
 /* ---- toast ---- */
 #toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
